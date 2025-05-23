@@ -1,0 +1,148 @@
+Title: Practical Machine Learning Final Project
+
+**************************************************************************
+Introduction
+
+The goal of this project is to predict the manner in which individuals performed barbell lifts using data from accelerometers. The target variable is classe.
+
+Step 1: Setting Up the Environment
+
+- Load Necessary libraries
+```{r}
+library("caret")
+library("randomForest")
+library("rpart")
+library("e1071")
+library("ggplot2")
+library("rattle")
+library("doParallel")
+```
+
+- Load the Data
+```{r}
+# Load training and testing data from URLs
+training_url <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+testing_url <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+
+training <- read.csv(url(training_url), na.strings = c("NA", "#DIV/0!", ""))
+testing <- read.csv(url(testing_url), na.strings = c("NA", "#DIV/0!", ""))
+```
+
+Step 2: Data Cleaning and Preprocessing
+
+The dataset contains many columns that are not useful for prediction (e.g., timestamps, row numbers, user names), and many columns contain mostly missing values. We’ll clean this up.
+
+- Remove Columns with Mostly NA Values
+```{r}
+# Remove columns with more than 95% NA values
+na_threshold <- 0.95
+training_clean <- training[, colMeans(is.na(training)) < na_threshold]
+testing_clean <- testing[, colMeans(is.na(testing)) < na_threshold]
+```
+
+- Remove Non-Predictive Columns
+```{r}
+# Drop non-predictive columns (first 5 columns are metadata)
+training_clean <- training_clean[, -c(1:5)]
+testing_clean <- testing_clean[, -c(1:5)]
+```
+
+- Make sure the outcome variable (classe) is a factor:
+```{r}
+training_clean$classe <- as.factor(training_clean$classe)
+
+```
+
+- Summary of Current Dataset
+```{r}
+str(training_clean)
+summary(training_clean$classe)
+
+```
+
+
+Step 3: Data Partitioning for Cross-Validation
+
+- Partition the Data
+```{r}
+set.seed(1234)  # For reproducibility
+
+# Create training (70%) and validation (30%) sets
+inTrain <- createDataPartition(training_clean$classe, p = 0.7, list = FALSE)
+training_set <- training_clean[inTrain, ]
+validation_set <- training_clean[-inTrain, ]
+
+```
+
+- Check the distribution of the target variable in both sets to ensure stratified sampling worked well:
+```{r}
+prop.table(table(training_set$classe))
+prop.table(table(validation_set$classe))
+```
+
+
+Step 4: Model Training and Evaluation
+
+We'll train multiple models and compare their performance on the validation set. The goal is to find the model with the best accuracy and lowest expected out-of-sample error.
+
+Let’s start with these popular classification models:
+
+1. Decision Tree (rpart)
+
+2. Random Forest
+
+- Train a Decision Tree Model
+```{r}
+set.seed(1234)
+model_rpart <- train(classe ~ ., data = training_set, method = "rpart")
+fancyRpartPlot(model_rpart$finalModel)  # Optional: visualize tree (if rattle package installed)
+
+```
+
+- Evaluate on validation set:
+```{r}
+pred_rpart <- predict(model_rpart, newdata = validation_set)
+confusionMatrix(pred_rpart, validation_set$classe)
+```
+
+- Train a Random Forest Model
+```{r}
+set.seed(1234)
+cl <- makePSOCKcluster(4)  # Use 4 cores or change depending on your CPU
+registerDoParallel(cl)
+
+set.seed(1234)
+model_rf <- train(
+  classe ~ ., 
+  data = training_set, 
+  method = "rf", 
+  trControl = trainControl(method = "cv", number = 3),  # Reduce to 3-fold CV
+  ntree = 100                                           # Reduce number of trees
+)
+
+stopCluster(cl)
+
+```
+
+- Evaluate on validation set:
+```{r}
+pred_rf <- predict(model_rf, newdata = validation_set)
+confusionMatrix(pred_rf, validation_set$classe)
+```
+
+
+Step 5: Predict on the Test Set
+
+The test dataset (testing_clean) contains 20 samples, and the final job is to use the best model to predict the class (classe) for each of them.
+
+- Make Predictions on the Test Set
+```{r}
+final_predictions <- predict(model_rf, newdata = testing_clean)
+final_predictions
+```
+
+
+Conclusion
+
+Random Forest had the highest accuracy and was used for the final prediction.
+
